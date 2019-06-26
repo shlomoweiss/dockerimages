@@ -1,0 +1,162 @@
+kind: Template
+apiVersion: v1
+metadata:
+  name: zk-persistent
+  annotations:
+    openshift.io/display-name: Zookeeper (Persistent)
+    description: Create a replicated Zookeeper server (Statefulset) with persistent storage
+    iconClass: icon-database
+    tags: database,zookeeper
+labels:
+  template: zk-persistent
+  component: zk
+parameters:
+- name: NAME
+  value: zk
+  required: true
+- name: SOURCE_IMAGE
+  description: Container image source
+  value: shlomoweiss/myzoo
+  required: true
+- name: ZOO_VERSION
+  description: Version
+  value: "1.0.0"
+  required: true
+- name: ZOO_REPLICAS
+  description: Number of nodes
+  value: "3"
+  required: true
+- name: VOLUME_DATA_CAPACITY
+  description: Persistent volume capacity for zookeeper dataDir directory (e.g. 512Mi, 2Gi)
+  value: 1Gi
+  required: true
+- name: VOLUME_DATALOG_CAPACITY
+  description: Persistent volume capacity for zookeeper dataLogDir directory (e.g. 512Mi, 2Gi)
+  value: 1Gi
+  required: true
+- name: ZOO_TICK_TIME
+  description: The number of milliseconds of each tick
+  value: "2000"
+  required: true
+- name: ZOO_INIT_LIMIT
+  description: The number of ticks that the initial synchronization phase can take
+  value: "5"
+  required: true
+- name: ZOO_SYNC_LIMIT
+  description: The number of ticks that can pass between sending a request and getting an acknowledgement
+  value: "2"
+  required: true
+- name: ZOO_CLIENT_PORT
+  description: The port at which the clients will connect
+  value: "2181"
+  required: true
+- name: ZOO_SERVER_PORT
+  description: Server port
+  value: "2888"
+  required: true
+- name: ZOO_ELECTION_PORT
+  description: Election port
+  value: "3888"
+  required: true
+- name: ZOO_MAX_CLIENT_CNXNS
+  description: The maximum number of client connections
+  value: "60"
+  required: true
+- name: ZOO_SNAP_RETAIN_COUNT
+  description: The number of snapshots to retain in dataDir
+  value: "3"
+  required: true
+- name: ZOO_PURGE_INTERVAL
+  description: Purge task interval in hours. Set to 0 to disable auto purge feature
+  value: "1"
+  required: true
+- name: ZOO_HEAP_SIZE
+  description: JVM heap size
+  value: "-Xmx960M -Xms960M"
+  required: true
+- name: RESOURCE_MEMORY_REQ
+  description: The memory resource request.
+  value: "1Gi"
+  required: true
+- name: RESOURCE_MEMORY_LIMIT
+  description: The limits for memory resource.
+  value: "1Gi"
+  required: true
+- name: RESOURCE_CPU_REQ
+  description: The CPU resource request.
+  value: "1"
+  required: true
+- name: RESOURCE_CPU_LIMIT
+  description: The limits for CPU resource.
+  value: "2"
+  required: true
+
+objects:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${NAME}
+    labels:
+      zk-name: ${NAME}
+    annotations:
+      service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  spec:
+    ports:
+    - port: ${ZOO_CLIENT_PORT}
+      name: client
+    - port: ${ZOO_SERVER_PORT}
+      name: server
+    - port: ${ZOO_ELECTION_PORT}
+      name: election
+    clusterIP: None
+    selector:
+      zk-name: ${NAME}
+- apiVersion: apps/v1beta1
+  kind: StatefulSet
+  metadata:
+    name: ${NAME}
+    labels:
+      zk-name: ${NAME}
+  spec:
+    podManagementPolicy: "Parallel"
+    serviceName: ${NAME}
+    replicas: ${ZOO_REPLICAS}
+    template:
+      metadata:
+        labels:
+          zk-name: ${NAME}
+          template: zk-persistent
+          component: zk
+        annotations:
+          scheduler.alpha.kubernetes.io/affinity: >
+            {
+              "podAntiAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": [{
+                  "labelSelector": {
+                    "matchExpressions": [{
+                      "key": "zk-name",
+                      "operator": "In",
+                      "values": ["${NAME}"]
+                    }]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }]
+              }
+            }
+      spec:
+        containers:
+        - name: ${NAME}
+          imagePullPolicy: IfNotPresent
+          image: ${SOURCE_IMAGE}:${ZOO_VERSION}
+          ports:
+          - containerPort: ${ZOO_CLIENT_PORT}
+            name: client
+          - containerPort: ${ZOO_SERVER_PORT}
+            name: server
+          - containerPort: ${ZOO_ELECTION_PORT}
+            name: election
+          env:
+          - name : ZOO_SERVERS
+            value: "server.1=zk-0.zk:2888:3888 server.2=zk-1.zk:2888:3888 server.3=zk-2.zk:2888:3888"
+          
+          
